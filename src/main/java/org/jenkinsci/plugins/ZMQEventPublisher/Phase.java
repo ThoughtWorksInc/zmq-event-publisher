@@ -25,6 +25,7 @@ import hudson.model.Run;
 import hudson.model.Executor;
 import hudson.model.Computer;
 import hudson.model.TaskListener;
+import hudson.util.LogTaskListener;
 import jenkins.model.Jenkins;
 
 import com.google.gson.FieldNamingPolicy;
@@ -33,6 +34,10 @@ import com.google.gson.GsonBuilder;
 
 import org.jenkinsci.plugins.ZMQEventPublisher.model.BuildState;
 import org.jenkinsci.plugins.ZMQEventPublisher.model.JobState;
+
+import java.io.IOException;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public enum Phase {
     STARTED, COMPLETED, FINISHED;
@@ -84,16 +89,35 @@ public enum Phase {
 
         jobState.setBuild(buildState);
 
+        EnvVars envVars = getEnvVars(run);
         ParametersAction paramsAction = run.getAction(ParametersAction.class);
         if (paramsAction != null && run instanceof AbstractBuild) {
             AbstractBuild build = (AbstractBuild) run;
             EnvVars env = new EnvVars();
-            for (ParameterValue value : paramsAction.getParameters())
-                if (!value.isSensitive())
-                    value.buildEnvVars(build, env);
+            for (ParameterValue value : paramsAction.getParameters()) {
+                if (!value.isSensitive()) {
+                    if (envVars.containsKey(value.getName())) {
+                        String envvar = envVars.get(value.getName());
+                        env.put(value.getName(), envvar);
+                    } else {
+                        value.buildEnvVars(build, env);
+                    }
+                }
+            }
             buildState.setParameters(env);
         }
 
+
+
         return gson.toJson(jobState);
+    }
+
+    private EnvVars getEnvVars(Run build) {
+        try {
+            return build.getEnvironment(new LogTaskListener(Logger.getLogger(getClass().getCanonicalName()), Level.INFO));
+        } catch (IOException e) {
+        } catch (InterruptedException e) {
+        }
+        return null;
     }
 }
